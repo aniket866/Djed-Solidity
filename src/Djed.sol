@@ -31,11 +31,11 @@ contract Djed is ReentrancyGuard {
     uint256 public immutable scDecimalScalingFactor;
     uint256 public immutable rcDecimalScalingFactor;
 
-    event BoughtStableCoins(address indexed buyer, address indexed receiver, uint256 amountSC, uint256 amountBC);
-    event SoldStableCoins(address indexed seller, address indexed receiver, uint256 amountSC, uint256 amountBC);
-    event BoughtReserveCoins(address indexed buyer, address indexed receiver, uint256 amountRC, uint256 amountBC);
-    event SoldReserveCoins(address indexed seller, address indexed receiver, uint256 amountRC, uint256 amountBC);
-    event SoldBothCoins(address indexed seller, address indexed receiver, uint256 amountSC, uint256 amountRC, uint256 amountBC);
+    event BoughtStableCoins(address indexed buyer, address indexed receiver, uint256 amountSC, uint256 amountBC, uint256 postRatio, uint256 currentPrice, uint256 newReserveBalance);
+    event SoldStableCoins(address indexed seller, address indexed receiver, uint256 amountSC, uint256 amountBC, uint256 postRatio, uint256 currentPrice, uint256 newReserveBalance);
+    event BoughtReserveCoins(address indexed buyer, address indexed receiver, uint256 amountRC, uint256 amountBC, uint256 postRatio, uint256 currentPrice, uint256 newReserveBalance);
+    event SoldReserveCoins(address indexed seller, address indexed receiver, uint256 amountRC, uint256 amountBC, uint256 postRatio, uint256 currentPrice, uint256 newReserveBalance);
+    event SoldBothCoins(address indexed seller, address indexed receiver, uint256 amountSC, uint256 amountRC, uint256 amountBC, uint256 postRatio, uint256 currentPrice, uint256 newReserveBalance);
 
     constructor(
         address oracleAddress, uint256 _scalingFactor,
@@ -100,7 +100,10 @@ contract Djed is ReentrancyGuard {
         require(amountSC > 0, "buySC: receiving zero SCs");
         stableCoin.mint(receiver, amountSC);
         require(isRatioAboveMin(scPrice(0)), "buySC: ratio below min");
-        emit BoughtStableCoins(msg.sender, receiver, amountSC, msg.value);
+        
+        uint256 newReserveBalance = R(0);
+        uint256 postRatio = (stableCoin.totalSupply() == 0 || scP == 0) ? 0 : (newReserveBalance * scalingFactor * scDecimalScalingFactor) / (stableCoin.totalSupply() * scP);
+        emit BoughtStableCoins(msg.sender, receiver, amountSC, msg.value, postRatio, scP, newReserveBalance);
     }
 
     function sellStableCoins(uint256 amountSC, address receiver, uint256 feeUI, address ui) external nonReentrant {
@@ -112,7 +115,10 @@ contract Djed is ReentrancyGuard {
         require(amountBC > 0, "sellSC: receiving zero BCs");
         stableCoin.burn(msg.sender, amountSC);
         transfer(receiver, amountBC);
-        emit SoldStableCoins(msg.sender, receiver, amountSC, amountBC);
+
+        uint256 newReserveBalance = R(0);
+        uint256 postRatio = (stableCoin.totalSupply() == 0 || scP == 0) ? 0 : (newReserveBalance * scalingFactor * scDecimalScalingFactor) / (stableCoin.totalSupply() * scP);
+        emit SoldStableCoins(msg.sender, receiver, amountSC, amountBC, postRatio, scP, newReserveBalance);
     }
 
     function buyReserveCoins(address receiver, uint256 feeUI, address ui) external payable nonReentrant {
@@ -124,7 +130,10 @@ contract Djed is ReentrancyGuard {
         require(amountRC > 0, "buyRC: receiving zero RCs");
         reserveCoin.mint(receiver, amountRC);
         require(isRatioBelowMax(scPrice(0)) || stableCoin.totalSupply() < thresholdSupplySC, "buyRC: ratio above max");
-        emit BoughtReserveCoins(msg.sender, receiver, amountRC, msg.value);
+        
+        uint256 newReserveBalance = R(0);
+        uint256 postRatio = (stableCoin.totalSupply() == 0 || scP == 0) ? 0 : (newReserveBalance * scalingFactor * scDecimalScalingFactor) / (stableCoin.totalSupply() * scP);
+        emit BoughtReserveCoins(msg.sender, receiver, amountRC, msg.value, postRatio, scP, newReserveBalance);
     }
 
     function sellReserveCoins(uint256 amountRC, address receiver, uint256 feeUI, address ui) external nonReentrant {
@@ -137,7 +146,10 @@ contract Djed is ReentrancyGuard {
         reserveCoin.burn(msg.sender, amountRC);
         transfer(receiver, amountBC);
         require(isRatioAboveMin(scPrice(0)), "sellRC: ratio below min");
-        emit SoldReserveCoins(msg.sender, receiver, amountRC, amountBC);
+
+        uint256 newReserveBalance = R(0);
+        uint256 postRatio = (stableCoin.totalSupply() == 0 || scP == 0) ? 0 : (newReserveBalance * scalingFactor * scDecimalScalingFactor) / (stableCoin.totalSupply() * scP);
+        emit SoldReserveCoins(msg.sender, receiver, amountRC, amountBC, postRatio, scP, newReserveBalance);
     }
 
     function sellBothCoins(uint256 amountSC, uint256 amountRC, address receiver, uint256 feeUI, address ui) external nonReentrant {
@@ -153,8 +165,12 @@ contract Djed is ReentrancyGuard {
         uint256 amountBC = deductFees(value, feeUI, ui); // side-effect: increases `treasuryRevenue` and pays UI and treasury
         require(amountBC > 0, "sellBoth: receiving zero BCs");
         transfer(receiver, amountBC);
-        require(R(0) * preL >= preR * L(scPrice(0)), "sellBoth: ratio decreased"); // R(0)/L(scP) >= preR/preL, avoiding division by zero
-        emit SoldBothCoins(msg.sender, receiver, amountSC, amountRC, amountBC);
+        require(R(0) * preL >= preR * L(scPrice(0)), "sellBoth: ratio decreased");
+        // R(0)/L(scP) >= preR/preL, avoiding division by zero
+        
+        uint256 newReserveBalance = R(0);
+        uint256 postRatio = (stableCoin.totalSupply() == 0 || scP == 0) ? 0 : (newReserveBalance * scalingFactor * scDecimalScalingFactor) / (stableCoin.totalSupply() * scP);
+        emit SoldBothCoins(msg.sender, receiver, amountSC, amountRC, amountBC, postRatio, scP, newReserveBalance);
     }
 
     // # Auxiliary Functions
