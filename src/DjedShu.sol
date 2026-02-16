@@ -107,8 +107,8 @@ contract DjedShu is ReentrancyGuard {
         require(isRatioAboveMin(scMaxPrice(0)), "buySC: ratio below min");
         
         uint256 newReserveBalance = R(0);
-        uint256 postRatio = (stableCoin.totalSupply() == 0 || scP == 0) ? 0 : (newReserveBalance * scalingFactor * scDecimalScalingFactor) / (stableCoin.totalSupply() * scP);
-        emit BoughtStableCoins(msg.sender, receiver, amountSC, msg.value, postRatio, scP, newReserveBalance);
+        uint256 postRatio = computePostRatio(newReserveBalance);
+        emit BoughtStableCoins(msg.sender, receiver, amountSC, msg.value, postRatio, scMaxPrice(0), newReserveBalance);
     }
 
     function sellStableCoins(uint256 amountSC, address receiver, uint256 feeUI, address ui) external nonReentrant {
@@ -123,8 +123,8 @@ contract DjedShu is ReentrancyGuard {
         transfer(receiver, amountBC);
 
         uint256 newReserveBalance = R(0);
-        uint256 postRatio = (stableCoin.totalSupply() == 0 || scP == 0) ? 0 : (newReserveBalance * scalingFactor * scDecimalScalingFactor) / (stableCoin.totalSupply() * scP);
-        emit SoldStableCoins(msg.sender, receiver, amountSC, amountBC, postRatio, scP, newReserveBalance);
+        uint256 postRatio = computePostRatio(newReserveBalance);
+        emit SoldStableCoins(msg.sender, receiver, amountSC, amountBC, postRatio, scMaxPrice(0), newReserveBalance);
     }
 
     function buyReserveCoins(address receiver, uint256 feeUI, address ui) external payable nonReentrant {
@@ -139,8 +139,8 @@ contract DjedShu is ReentrancyGuard {
         require(isRatioBelowMax(scMaxPrice(0)) || stableCoin.totalSupply() < thresholdSupplySC, "buyRC: ratio above max");
         
         uint256 newReserveBalance = R(0);
-        uint256 postRatio = (stableCoin.totalSupply() == 0 || scP == 0) ? 0 : (newReserveBalance * scalingFactor * scDecimalScalingFactor) / (stableCoin.totalSupply() * scP);
-        emit BoughtReserveCoins(msg.sender, receiver, amountRC, msg.value, postRatio, scP, newReserveBalance);
+        uint256 postRatio = computePostRatio(newReserveBalance);
+        emit BoughtReserveCoins(msg.sender, receiver, amountRC, msg.value, postRatio, scMaxPrice(0), newReserveBalance);
     }
 
     function sellReserveCoins(uint256 amountRC, address receiver, uint256 feeUI, address ui) external nonReentrant {
@@ -156,8 +156,8 @@ contract DjedShu is ReentrancyGuard {
         require(isRatioAboveMin(scMinPrice(0)), "sellRC: ratio below min");
         
         uint256 newReserveBalance = R(0);
-        uint256 postRatio = (stableCoin.totalSupply() == 0 || scP == 0) ? 0 : (newReserveBalance * scalingFactor * scDecimalScalingFactor) / (stableCoin.totalSupply() * scP);
-        emit SoldReserveCoins(msg.sender, receiver, amountRC, amountBC, postRatio, scP, newReserveBalance);
+        uint256 postRatio = computePostRatio(newReserveBalance);
+        emit SoldReserveCoins(msg.sender, receiver, amountRC, amountBC, postRatio, scMaxPrice(0), newReserveBalance);
     }
 
     function sellBothCoins(uint256 amountSC, uint256 amountRC, address receiver, uint256 feeUI, address ui) external nonReentrant {
@@ -174,12 +174,12 @@ contract DjedShu is ReentrancyGuard {
         uint256 amountBC = deductFees(value, feeUI, ui); // side-effect: increases `treasuryRevenue` and pays UI and treasury
         require(amountBC > 0, "sellBoth: receiving zero BCs");
         transfer(receiver, amountBC);
-        require(R(0) * preL >= preR * L(scMinPrice(0)), "sellBoth: ratio decreased");
+        require(R(0) * preL >= preR * L(scMaxPrice(0)), "sellBoth: ratio decreased");
         // R(0)/L(scP) >= preR/preL, avoiding division by zero
         
         uint256 newReserveBalance = R(0);
-        uint256 postRatio = (stableCoin.totalSupply() == 0 || scP == 0) ? 0 : (newReserveBalance * scalingFactor * scDecimalScalingFactor) / (stableCoin.totalSupply() * scP);
-        emit SoldBothCoins(msg.sender, receiver, amountSC, amountRC, amountBC, postRatio, scP, newReserveBalance);
+        uint256 postRatio = computePostRatio(newReserveBalance);
+        emit SoldBothCoins(msg.sender, receiver, amountSC, amountRC, amountBC, postRatio, scMaxPrice(0), newReserveBalance);
     }
 
     // # Auxiliary Functions
@@ -203,7 +203,6 @@ contract DjedShu is ReentrancyGuard {
         return R(0) * scalingFactor * scDecimalScalingFactor <= stableCoin.totalSupply() * _scPrice * reserveRatioMax;
     }
 
-    // Treasury Fee: starts as `initialTreasuryFee` and decreases linearly to 0 as the `treasuryRevenue` approaches the `treasuryRevenueTarget`
     function treasuryFee() public view returns (uint256) {
         return (treasuryRevenue >= treasuryRevenueTarget)
                 ? 0
@@ -248,6 +247,11 @@ contract DjedShu is ReentrancyGuard {
         return reserveCoin.totalSupply() == 0
                 ? rcInitialPrice
                 : Math.max(rcTargetPrice(_scPrice, _currentPaymentAmount), rcMinPrice);
+    }
+
+    function computePostRatio(uint256 newReserveBalance) internal view returns (uint256) {
+        uint256 scP = scMaxPrice(0);
+        return (stableCoin.totalSupply() == 0 || scP == 0) ? 0 : (newReserveBalance * scalingFactor * scDecimalScalingFactor) / (stableCoin.totalSupply() * scP);
     }
 
     function transfer(address receiver, uint256 amount) internal {
